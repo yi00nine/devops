@@ -1,0 +1,98 @@
+version: '3'
+x-common: &barn-common
+  image: registry.cn-hangzhou.aliyuncs.com/test:<IMAGE_TAG>
+  # image: registry.cn-hangzhou.aliyuncs.com/xyz10-apps/barn:<IMAGE_TAG>
+  # build: .
+  depends_on: &barn-common-depends-on
+    mysql:
+      condition: service_healthy
+services:
+  mysql:
+    image: mysql:5.7
+    ports:
+      - '3306:3306'
+    environment:
+      - MYSQL_ROOT_PASSWORD=barn
+    container_name: barn-mysql
+    volumes:
+      - ./init.db:/docker-entrypoint-initdb.d
+      - /data/barn/head/mysql:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 30s
+      timeout: 10s
+      retries: 6
+
+  redis:
+    image: swr.cn-north-4.myhuaweicloud.com/xyz10/rbm-redis:v1.0
+    ports:
+      - '6379:6379'
+    container_name: barn-redis
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 30s
+      retries: 50
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: barn-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=barn
+      - RABBITMQ_DEFAULT_PASS=barn
+    ports:
+      - '4369:4369'
+      - '5551:5551'
+      - '5552:5552'
+      - '5672:5672'
+      - '25672:25672'
+      - '15672:15672'
+    privileged: true
+
+  bff-head:
+    <<: *barn-common
+    ports:
+      - '10086:80'
+    container_name: barn-bff-head
+    command:
+      - bff
+      - webserver
+    environment:
+      - PORT=80
+      - BACKEND_SERVICE=http://backend-webserver/v1
+      - STATIC_PATH=static/head
+      - SOURCE=head
+
+  barn-init:
+    <<: *barn-common
+    entrypoint: /bin/bash
+    container_name: barn-init
+    command:
+      - -c
+      - |
+        set -e
+        echo
+        services=("cleaning" "sync" "backend" "common" "label" "transformer" "node_management")  # 包含服务名称的数组 
+        for service in "$${services[@]}"; do
+          service_home_varname="$${service^^}_HOME" # 将服务名称转换为大写并添加 _HOME
+          service_home=$${!service_home_varname}    # 间接引用以获取目录
+          echo "Migrate $${service}-service"
+          echo
+          cd "$${service_home}"
+          MYSQL_URL="mysql+pymysql://root:barn@mysql/$${service}" alembic upgrade head
+        done
+        echo "barn python alembic init done!"
+
+  backend-webserver:
+    <<: *barn-common
+    command:
+      - backend
+      - webserver
+    container_name: barn-backend-webserver
+    ports:
+      - '9008:80'
+    environment:
+      - MYSQL_URL=mysql+pymysql://root:barn@mysql:3306/cleaning
+      - SOURCE=head
+    depends_on:
+      <<: *barn-common-depends-on

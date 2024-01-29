@@ -1,0 +1,67 @@
+## build frontend
+
+#FROM registry.cn-hangzhou.aliyuncs.com/xyz10-apps/node:barn-pre-20230427 as node18
+FROM registry.cn-hangzhou.aliyuncs.com/xyz10-apps/node:barn-pre-20231213 as node18
+RUN  npm config set registry http://registry.npm.taobao.org --global
+WORKDIR /app/bff
+COPY ./packages/console/bff/ .
+#RUN yarn run build && \
+RUN npm i  
+RUN npm run build &&\
+  rm -rf node_modules
+WORKDIR /app/frontend
+COPY ./packages/console/frontend/ .
+#RUN yarn run build && \
+RUN npm i  
+RUN  npm run build:all &&\
+  rm -rf node_modules
+# # # build fronted end
+
+# # # build uds
+FROM registry.cn-hangzhou.aliyuncs.com/xyz10-apps/java:barn-pre-20231109 AS java8
+WORKDIR /app
+COPY ./packages/uds/lib ./lib
+COPY ./packages/uds/src ./src
+COPY ./packages/uds/pom.xml .
+# 下载依赖并打包
+RUN mvn package -DskipTests
+# # # build uds end
+
+
+# # # build all in one docker
+FROM registry.cn-hangzhou.aliyuncs.com/xyz10-apps/python:barn-pre-20231109
+ARG PROJECT_HOME=/home/xyz10/barn
+WORKDIR ${PROJECT_HOME}
+COPY  ./requirements.txt ${PROJECT_HOME}/packages/
+## ENV pip install
+RUN pip install -r ${PROJECT_HOME}/packages/requirements.txt
+
+ENV CLEANING_HOME=${PROJECT_HOME}/packages/cleaning BACKEND_HOME=${PROJECT_HOME}/packages/console/backend LABEL_HOME=${PROJECT_HOME}/packages/label SYNC_HOME=${PROJECT_HOME}/packages/sync UDS_HOME=${PROJECT_HOME}/packages/uds DUPLICATION_HOME=${PROJECT_HOME}/packages/duplication COMMON_HOME=${PROJECT_HOME}/packages/system/common BFF_HOME=${PROJECT_HOME}/packages/console/bff TRANSFORMER_HOME=${PROJECT_HOME}/packages/transformer NODE_MANAGEMENT_HOME=${PROJECT_HOME}/packages/system/node_management
+ENV CLEANING_SERVICE_NAME=cleaning BACKEND_SERVICE_NAME=backend LABEL_SERVICE_NAME=label  SYNC_SERVICE_NAME=sync UDS_SERVICE_NAME=uds DUPLICATION_SERVICE_NAME=duplication BFF_SERVICE_NAME=bff COMMON_SERVICE_NAME=common TRANSFORMER_SERVICE_NAME=transformer NODE_MANAGEMENT_SERVICE_NAME=node_management
+ENV CELERY_CLEANING_QUEUE=cleaning_queue_name CELERY_BACKEND_QUEUE=backend_queue_name CELERY_LABEL_QUEUE=label_queue_name  CELERY_SYNC_QUEUE=sync_queue_name CELERY_DUPLICATION_QUEUE=sync_queue_name CELERY_TRANSFORMER_QUEUE=transformer_queue_name
+
+# copy python code
+COPY  ./packages/cleaning ${CLEANING_HOME}/
+COPY  ./packages/console/backend ${BACKEND_HOME}/
+COPY  ./packages/label ${LABEL_HOME}/
+COPY  ./packages/sync ${SYNC_HOME}/
+COPY  ./packages/system/common ${COMMON_HOME}/
+COPY  ./packages/duplication ${DUPLICATION_HOME}/
+COPY ./packages/transformer ${TRANSFORMER_HOME}/
+COPY ./packages/system/node_management ${NODE_MANAGEMENT_HOME}/
+# copy bff build result
+COPY --from=node18  /app/bff/dist/ ${BFF_HOME}/
+COPY --from=node18  /app/frontend/dist/ ${BFF_HOME}/static
+# copy uds build result
+COPY --from=java8 /app/target/*.jar ${UDS_HOME}/uds.jar
+
+# # * prepare entrypoint
+COPY  ./deploy/docker-entrypoint.sh ${PROJECT_HOME}/
+RUN chmod +x ${PROJECT_HOME}/docker-entrypoint.sh
+
+
+
+ENTRYPOINT ["/home/xyz10/barn/docker-entrypoint.sh"]
+
+ENV HTTP_PORT=80
+EXPOSE ${HTTP_PORT}
