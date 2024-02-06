@@ -45,4 +45,4 @@ server {
 
 设置 root 为/usr/share/nginx/html/,nginx 匹配到/system/v1 路径会去 /usr/share/nginx/html/system/v1 去找静态资源,因此返回 500
 
-需要设置 alias 解决当 Nginx 接收到一个请求时，它会将请求的 URI 与 `location` 块中的 `alias` 指令指定的路径进行匹配，并使用匹配的路径来确定实际的文件路径。与 `root` 不同，`alias` 指令会将匹配的部分替换为指定的路径
+需要设置 alias 解决,当 Nginx 接收到一个请求时，它会将请求的 URI 与 `location` 块中的 `alias` 指令指定的路径进行匹配，并使用匹配的路径来确定实际的文件路径。与 `root` 不同，`alias` 指令会将匹配的部分替换为指定的路径
